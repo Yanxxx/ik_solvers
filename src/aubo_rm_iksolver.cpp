@@ -54,9 +54,6 @@ const char* j_name_list[]={
 };
 
 JntArray _current_position(NO_OF_JOINTS);
-// JntArray _current_velocity(NO_OF_JOINTS);
-// JntArray _robot_position(NO_OF_JOINTS);
-// JntArray _robot_velocity(NO_OF_JOINTS);
 
 sensor_msgs::JointState _joint_state;
 Chain * _p_chain;
@@ -165,8 +162,6 @@ void posmsgCallback(const geometry_msgs::Transform::ConstPtr&  msg)
 	target.translation.x = msg->translation.x + eeFrame.p[0];
 	target.translation.y = msg->translation.y + eeFrame.p[1];
 	target.translation.z = msg->translation.z + eeFrame.p[2];
-
-	// target_pose_received_count = 0;
 
 	std::cout<< "delta distance: "<< msg->translation.x<<" ";
 	std::cout<< msg->translation.y<<" ";
