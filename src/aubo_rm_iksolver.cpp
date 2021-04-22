@@ -172,6 +172,7 @@ void posmsgCallback(const geometry_msgs::Transform::ConstPtr&  msg)
 
     // ik computation
     int kinematics_status = iksolver_fun(target, joint_positions);
+	std::cout<<"ik results "<<kinematics_status<<std::endl;
 
     // send ik results
     if (kinematics_status >= 0){
@@ -184,6 +185,14 @@ void posmsgCallback(const geometry_msgs::Transform::ConstPtr&  msg)
         memcpy(buff, position, sizeof(double) * 6);
         _p_uc->send(buff, sizeof(double) * 6);
     }
+}
+
+void *RefreshRosMsg(void *t){
+	(void ) t;
+	while(ros::ok()){
+		ros::spinOnce();
+	}
+
 }
 
 int main(int argc,char** argv){
@@ -239,14 +248,16 @@ int main(int argc,char** argv){
 
 	// create and start threads for udp communication
 	pthread_t server_thread;
+	pthread_t ros_thread;
 	pthread_attr_t attr;
 
 	// Initialize and set thread joinable		
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
-	int st = 1;
+	//int st = 1;
 	std::cout<<"start thread"<<std::endl;	
-	pthread_create(&server_thread, &attr, udpserver, (void *)&st);
+	pthread_create(&server_thread, &attr, udpserver, NULL);
+	pthread_create(&ros_thread, &attr, RefreshRosMsg, NULL);
     // init pose sending process
 
 	udp_client uc(UDP_CLIENT_IP, UDP_CLIENT_PORT);
