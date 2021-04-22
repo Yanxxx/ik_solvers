@@ -248,7 +248,7 @@ int main(int argc,char** argv){
 	// Joint_State_Msg_Initialize(NO_OF_JOINTS,(char**)j_name_list);
     _joint_state.name.resize(NO_OF_JOINTS);
     _joint_state.position.resize(NO_OF_JOINTS);
-    for(i = 0; i < NO_OF_JOINTS; i++)
+    for(int i = 0; i < NO_OF_JOINTS; i++)
         _joint_state.name[i] = j_name_list[i];
 
     // init robot tree and chain

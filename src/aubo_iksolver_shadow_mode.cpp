@@ -42,21 +42,14 @@ using namespace KDL;
 using namespace std; 
 
 bool new_target = false;
-bool robot_control_flag = false;
 bool program_terminated = false;
-bool robot_state_flag = false;
-
-Chain * p_chain;
-ChainFkSolverPos_recursive* p_fksolver;
 
 geometry_msgs::Transform target;
-geometry_msgs::Transform robot_pose;
-sensor_msgs::JointState joint_state;
-int print_count;
-int sync_count = 0;
+geometry_msgs::Transform _delta_pose;
 
-int robot_pose_received_count = 0;
-int target_pose_received_count = 0;
+geometry_msgs::Transform robot_pose;
+
+sensor_msgs::JointState joint_state;
 
 ros::NodeHandle * _p_node;
 
@@ -100,58 +93,22 @@ void *udpserver(void *t) {
 	}
 
 	std::cout<<"start udp receiving"<<std::endl;
-	// ros::Publisher jointstates_publisher = pnode->advertise<sensor_msgs::JointState>("robot2/joint_states", 1000);
-	ros::Publisher robot_joint_states_publisher = _p_node->advertise<sensor_msgs::JointState>("robot2/joint_states", 1000);
-
+	ros::Publisher robot_joint_states_publisher = 
+		_p_node->advertise<sensor_msgs::JointState>("robot2/joint_states", 1000);
 
 	print_count = 0;
 	int recv=0;
-		int i;
 	while (!program_terminated) {
-		robot_control_flag = false;
 		recv = us.timed_recv(buff, 1024, 50);
-		robot_pose_received_count ++;
-		// if(recv<0){
-
-		// 	std::cout<<"Sync robot pose with current position."<<std::endl;
-		// 	for(i = 0; i < NO_OF_JOINTS; i++){
-		// 		robot_position(i) = current_position(i);//*180/3.1415926;
-		// 	}
-		// }else{
-		robot_state_flag = true;
 		memcpy(recv_data, buff, sizeof(double) * 12);
-		robot_control_flag = true;
-		error = 0;
 
-		for(i = 0; i < NO_OF_JOINTS; i++){
-			robot_velocity(i) = recv_data[i];//*180/3.1415926;
-			robot_position(i) = recv_data[i+6];//*180/3.1415926;
-			robot_joint_states.position[i] = recv_data[i+6] * 3.14 / 180;
+		for(int i = 0; i < NO_OF_JOINTS; i++){
+			_current_position(i) = recv_data[i+6] * 3.14 / 180;
+			robot_joint_states.position[i] = _current_position(i);
 		}
 		
 		robot_joint_states.header.stamp = ros::Time::now();
 		robot_joint_states_publisher.publish(robot_joint_states);
-
-
-		if(!new_target){
-			for(unsigned int i = 0; i < NO_OF_JOINTS ;i++){
-					joint_state.position[i] = robot_position(i)*3.1415926/180;
-			}
-			joint_state.header.stamp = ros::Time::now();
-		}
-		// }
-
-		for(int i=0;i<NO_OF_JOINTS;i++){
-			error += abs(c_p [i] - current_position(i));
-		}
-
-		if(error < 0.01) current_pose_sync_flag++;
-		if(current_pose_sync_flag > 200){
-			for(int i=0;i<NO_OF_JOINTS;i++){
-				current_position(i) = robot_position(i)*3.1415926/180;
-			}
-		}
-
 
 		if(print_count>=500){	
 			std::cout << "original received messages: " ;
@@ -176,23 +133,15 @@ void Joint_State_Msg_Initialize(int size, char* joint_name_list[]){
 void posmsgCallback(const geometry_msgs::Transform::ConstPtr&  msg)
 {
 	new_target = true;
-	Frame eeFrame;
-	p_fksolver->JntToCart(current_position, eeFrame);
-	
-	robot_pose.translation.x = eeFrame.p[0];
-	robot_pose.translation.y = eeFrame.p[1];
-	robot_pose.translation.z = eeFrame.p[2];
-	
-	target.rotation.x = msg->rotation.x;
-	target.rotation.y = msg->rotation.y;
-	target.rotation.z = msg->rotation.z;
-	target.rotation.w = msg->rotation.w;	
-	
-	target.translation.x = msg->translation.x + robot_pose.translation.x;
-	target.translation.y = msg->translation.y + robot_pose.translation.y;
-	target.translation.z = msg->translation.z + robot_pose.translation.z;
 
-	target_pose_received_count = 0;
+	_delta_pose.translation.x = msg->translation.x;
+	_delta_pose.translation.y = msg->translation.y;
+	_delta_pose.translation.z = msg->translation.z;
+
+	_delta_pose.rotation.x = msg->rotation.x;
+	_delta_pose.rotation.y = msg->rotation.y;
+	_delta_pose.rotation.z = msg->rotation.z;
+	_delta_pose.rotation.w = msg->rotation.w;	
 
 	std::cout<< "delta distance: "<< msg->translation.x<<" ";
 	std::cout<< msg->translation.y<<" ";
@@ -214,22 +163,16 @@ void TrimJoint(JntArray& joints){
 	}
 }
 
-// int robot_pose_received_count = 0;
-// int target_pose_received_count = 0;
 void *ik_fun(void *t) {
 	ros::NodeHandle *pnode = (ros::NodeHandle *)t;
 	_p_node = pnode;
 	Joint_State_Msg_Initialize(NO_OF_JOINTS,(char**)j_name_list);
 
 	Tree my_tree;
-	kdl_parser::treeFromFile("/home/yan/catkin_ws/src/aubo_description/urdf/aubo_i3_3R.urdf",my_tree);
-	Chain chain;
-	
+	kdl_parser::treeFromFile("../../aubo_description/urdf/aubo_i3_3R.urdf",my_tree);
+	Chain chain;	
 	my_tree.getChain("world","tcp_Link",chain);
 	ChainFkSolverPos_recursive fksolver = ChainFkSolverPos_recursive(chain);
-
-	p_chain = &chain;
-	p_fksolver = &fksolver;
 
 	unsigned int nj = chain.getNrOfJoints();
 	unsigned int ns = chain.getNrOfSegments();
@@ -261,48 +204,16 @@ void *ik_fun(void *t) {
 	// construct the destination frame
 	Vector vec(0,0,0);
 	Rotation rot(0,0,0,0,0,0,0,0,0);
-	ros::Publisher jointstates_publisher = pnode->advertise<sensor_msgs::JointState>("robot1/joint_states", 1000);
-	tf::TransformBroadcaster br;
-	tf::Transform t1;
+	ros::Publisher jointstates_publisher = 
+		pnode->advertise<sensor_msgs::JointState>("robot1/joint_states", 1000);
 	
+	Frame eeFrame;
+
 	while(ros::ok()){
-		//robot_pose_received_count++;
-		target_pose_received_count++;
-
-		t1.setOrigin( tf::Vector3(0.0, 0.0, 0.0) );
-		t1.setRotation(tf::createQuaternionFromRPY(-M_PI_2,0,M_PI));
-
-		//br.sendTransform(tf::StampedTransform(t1, ros::Time::now(), "controller_LHR_FF777F05", "carrot1"));
-	
 		if(!new_target){
 			ros::spinOnce();
-
-			if((robot_pose_received_count - pre_robot_receive_count) == 0){
-				robot_pose_sync_flag ++;
-				if (robot_pose_sync_flag > 20){
-					for(int i = 0; i < NO_OF_JOINTS;i++){
-						robot_position(i)=current_position(i);
-					}
-					robot_pose_sync_flag = 0;
-				}
-			}else{
-				robot_pose_sync_flag = 0;
-			}
-
-			// jointstates_publisher.publish(joint_state);
-			sync_count ++;
-			// 2.5 second control idle will update current pose to robot pose
-			if(robot_pose_received_count > 500){ 
-				sync_count = 0;
-				for(int i = 0; i< NO_OF_JOINTS;i++){
-					current_position(i)=robot_position(i);
-				}
-				robot_state_flag = false;
-			}
-			pre_robot_receive_count = robot_pose_received_count;
 			continue;
 		}
-		pre_robot_receive_count = robot_pose_received_count;
 
 		std::cout<<"current pose: ";
 		for(int i = 0; i< NO_OF_JOINTS;i++){
@@ -310,15 +221,22 @@ void *ik_fun(void *t) {
 		}
 		std::cout<<std::endl;
 
+		fksolver.JntToCart(current_position, eeFrame);
+
+		target.translation.x = _delta_pose.translation.x + eeFrame.p[0];
+		target.translation.y = _delta_pose.translation.y + eeFrame.p[1];
+		target.translation.z = _delta_pose.translation.z + eeFrame.p[2];
+
+
 		vec.x(target.translation.x);
 		vec.y(target.translation.y);
 		vec.z(target.translation.z);
 
 		rot = Rotation::Quaternion(
-				target.rotation.x,
-				target.rotation.y,
-				target.rotation.z,
-				target.rotation.w);
+				_delta_pose.rotation.x,
+				_delta_pose.rotation.y,
+				_delta_pose.rotation.z,
+				_delta_pose.rotation.w);
 	
 		Frame TargetFrame(rot,vec);
 		
@@ -328,14 +246,6 @@ void *ik_fun(void *t) {
 
 		begin = clock();
 		kinematics_status = iksolver.CartToJnt(current_position, TargetFrame, jointpositions);
-
-		std::cout<< "kdl results: "<<kinematics_status<<std::endl;
-
-		// if(jointpositions(1) < 0){
-		// 	cout<<"bad configuration! Reset value..."<<endl;
-		// 	ros::spinOnce();
-		// 	continue;
-		// }
 
 		TrimJoint(jointpositions);
 		
@@ -354,7 +264,6 @@ void *ik_fun(void *t) {
 			uc.send(buff, sizeof(double) * 6);
 			// std::cout<<std::endl;
 			joint_state.header.stamp = ros::Time::now();
-			std::cout<< "send out the robot joint topic message"<<std::endl;
 			jointstates_publisher.publish(joint_state);
 		}
 		else{
