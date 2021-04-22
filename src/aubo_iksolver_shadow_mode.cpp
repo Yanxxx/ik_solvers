@@ -36,34 +36,30 @@
 #include <cmath>
 
 
-#define NO_OF_JOINTS 4
-
 using namespace KDL; 
 using namespace std; 
 
-bool new_target = false;
-bool program_terminated = false;
-
-geometry_msgs::Transform target;
-geometry_msgs::Transform _delta_pose;
-
-geometry_msgs::Transform robot_pose;
-
-sensor_msgs::JointState joint_state;
-
-ros::NodeHandle * _p_node;
-
-
-JntArray current_position(NO_OF_JOINTS);
-JntArray current_velocity(NO_OF_JOINTS);
-JntArray robot_position(NO_OF_JOINTS);
-JntArray robot_velocity(NO_OF_JOINTS);
-JntArray target_joint_pose(NO_OF_JOINTS);
-
+#define NO_OF_JOINTS 4
 #define UDP_SERVER_IP "127.0.0.2"
 #define UDP_SERVER_PORT 19001
 #define UDP_CLIENT_IP UDP_SERVER_IP
 #define UDP_CLIENT_PORT UDP_SERVER_PORT - 1
+
+bool new_target = false;
+bool program_terminated = false;
+int print_count = 0;
+
+geometry_msgs::Transform target;
+geometry_msgs::Transform _delta_pose;
+
+sensor_msgs::JointState joint_state;
+ros::NodeHandle * _p_node;
+
+JntArray _current_position(NO_OF_JOINTS);
+JntArray current_velocity(NO_OF_JOINTS);
+JntArray robot_position(NO_OF_JOINTS);
+JntArray robot_velocity(NO_OF_JOINTS);
+JntArray target_joint_pose(NO_OF_JOINTS);
 
 const char* j_name_list[]={
 "shoulder_joint",
@@ -72,8 +68,8 @@ const char* j_name_list[]={
 "wrist1_joint",
 };
 
-void *udpserver(void *t) {
-	(void)t;
+void *udpserver(void * t) {
+	(void) t;
 	std::cout<<"init udp server receiving"<<std::endl;
 	udp_server us(UDP_SERVER_IP, UDP_SERVER_PORT);
 	std::cout<<"udp server receiving initiated"<<std::endl;
@@ -120,6 +116,7 @@ void *udpserver(void *t) {
 		}
 		print_count++;
 	}
+	pthread_exit(NULL);
 }
 
 void Joint_State_Msg_Initialize(int size, char* joint_name_list[]){
@@ -210,24 +207,21 @@ void *ik_fun(void *t) {
 	Frame eeFrame;
 
 	while(ros::ok()){
+		ros::spinOnce();
 		if(!new_target){
-			ros::spinOnce();
 			continue;
 		}
 
 		std::cout<<"current pose: ";
 		for(int i = 0; i< NO_OF_JOINTS;i++){
-			std::cout<<current_position(i)* 180 / 3.1415926<<" ";
+			std::cout<<_current_position(i)* 180 / 3.1415926<<" ";
 		}
 		std::cout<<std::endl;
 
-		fksolver.JntToCart(current_position, eeFrame);
-
+		fksolver.JntToCart(_current_position, eeFrame);
 		target.translation.x = _delta_pose.translation.x + eeFrame.p[0];
 		target.translation.y = _delta_pose.translation.y + eeFrame.p[1];
 		target.translation.z = _delta_pose.translation.z + eeFrame.p[2];
-
-
 		vec.x(target.translation.x);
 		vec.y(target.translation.y);
 		vec.z(target.translation.z);
@@ -238,31 +232,27 @@ void *ik_fun(void *t) {
 				_delta_pose.rotation.z,
 				_delta_pose.rotation.w);
 	
-		Frame TargetFrame(rot,vec);
-		
+		Frame TargetFrame(rot,vec);		
 		// TargetFrame.M.DoRotX(-M_PI_2);
 		TargetFrame.M.DoRotX(-M_PI);
 		TargetFrame.M.DoRotY(M_PI);
 
 		begin = clock();
-		kinematics_status = iksolver.CartToJnt(current_position, TargetFrame, jointpositions);
-
-		TrimJoint(jointpositions);
-		
+		kinematics_status = iksolver.CartToJnt(_current_position, TargetFrame, jointpositions);
+		TrimJoint(jointpositions);		
 		end = clock();
-		if(kinematics_status >= 0){
-			robot_control_flag = true;
-			// std::cout<<"target pose is: ";
 
+		if(kinematics_status >= 0){
+			// std::cout<<"target pose is: ";
 			for(unsigned int i = 0; i < NO_OF_JOINTS ;i++){
 				joint_state.position[i] = jointpositions(i);					
-				current_position(i) = jointpositions(i);			
+				_current_position(i) = jointpositions(i);			
 				position[i]  = jointpositions(i) * 180 / 3.1415926;	
 				// std::cout<<position[i]<<" ";
 			}			
+			// std::cout<<std::endl;
 			memcpy(buff, position, sizeof(double) * 6);
 			uc.send(buff, sizeof(double) * 6);
-			// std::cout<<std::endl;
 			joint_state.header.stamp = ros::Time::now();
 			jointstates_publisher.publish(joint_state);
 		}
@@ -270,8 +260,8 @@ void *ik_fun(void *t) {
 			printf("ik solver failed!\r\n");
 		}
 		new_target = false;
-		ros::spinOnce();
 	}
+	pthread_exit(NULL);
 }
 
 int main(int argc,char** argv){
@@ -279,7 +269,8 @@ int main(int argc,char** argv){
 
 	ros::start(); 
 	ros::NodeHandle node_handle;
-	ros::Subscriber tarpos_sub = node_handle.subscribe("tarpos_pub", 1000, posmsgCallback);
+	ros::Subscriber tarpos_sub = 
+		node_handle.subscribe("tarpos_pub", 1000, posmsgCallback);
 
 	// create and start threads for udp communication
 	pthread_t server_thread;
@@ -289,11 +280,9 @@ int main(int argc,char** argv){
 	// Initialize and set thread joinable		
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
-	int st = 1;
-	int ct = 2;
 	
 	std::cout<<"start thread"<<std::endl;	
-	pthread_create(&server_thread, &attr, udpserver, (void *)&st);
+	pthread_create(&server_thread, &attr, udpserver, NULL);
 	pthread_create(&ik_thread, &attr, ik_fun, (void *)&node_handle);
 	pthread_attr_destroy(&attr);
 	void *status;
