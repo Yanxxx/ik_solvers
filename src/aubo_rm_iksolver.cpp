@@ -35,6 +35,7 @@
 #include "udp_server.h"
 #include <cmath>
 #include <unistd.h>
+#include <memory>
 
 using namespace KDL; 
 using namespace std; 
@@ -57,10 +58,17 @@ JntArray _current_position(NO_OF_JOINTS);
 
 sensor_msgs::JointState _joint_state;
 Chain * _p_chain;
-ChainFkSolverPos_recursive* _p_fksolver;
-ChainIkSolverPos_LMA* _p_iksolver;
 ros::Publisher* _p_publisher;
-udp_client* _p_uc;
+
+std::shared_ptr<ros::Publisher> _p_robot_state_publisher;
+ros::Publisher * _p_ik_state_publisher;
+
+std::shared_ptr<ChainFkSolverPos_recursive> _p_fksolver;
+std::shared_ptr<ChainIkSolverPos_LMA> _p_iksolver;
+std::shared_ptr<udp_client> _p_uc;
+std::shared_ptr<ros::NodeHandle> _p_node;
+
+
 
 bool _program_terminated = false;
 
@@ -76,6 +84,18 @@ void *udpserver(void *t) {
     int recv=0;
     int i;
 
+	sensor_msgs::JointState robot_joint_states;
+
+	robot_joint_states.name.resize(NO_OF_JOINTS);
+	robot_joint_states.position.resize(NO_OF_JOINTS);
+	for(int i = 0; i < NO_OF_JOINTS; i++){
+		robot_joint_states.name[i] = j_name_list[i];
+	}
+
+	std::cout<<"start udp receiving"<<std::endl;
+	ros::Publisher robot_joint_states_publisher =
+		_p_node->advertise<sensor_msgs::JointState>("robot2/joint_states", 1000);
+
   	std::cout<<"start udp receiving"<<std::endl;
     while (!_program_terminated) {
         recv = us.timed_recv(buff, 1024, 50);
@@ -83,8 +103,11 @@ void *udpserver(void *t) {
 			memcpy(recv_data, buff, sizeof(double) * 12);
 
 			for(i = 0; i < NO_OF_JOINTS; i++){
-				_current_position(i) = recv_data[i+6];
+				_current_position(i) = recv_data[i+6] * 3.14 / 180;
+				robot_joint_states.position[i] = recv_data[i+6] * 3.14 / 180;
 			}
+			robot_joint_states.header.stamp = ros::Time::now();
+			robot_joint_states_publisher.publish(robot_joint_states);
 			
 			if(print_count>=500){	
 				std::cout << "original received messages: " ;
@@ -132,10 +155,24 @@ int iksolver_fun(geometry_msgs::Transform target, JntArray& joint_positions){
     TargetFrame.M.DoRotX(-M_PI);
     TargetFrame.M.DoRotY(M_PI);
 
+	std::cout<<"curent position: ";
+	for (int i = 0; i< NO_OF_JOINTS; i++) {
+		std::cout<< _current_position(i) <<" ";
+	}
+	std::cout<< std::endl;
+	// std::cout<< TargetFrame<<std::endl;
+
     int kinematics_status = _p_iksolver->CartToJnt(_current_position, TargetFrame, joint_positions);
 
+	// std::cout<< "kdl results " << kinematics_status<< std::endl;
+
+	// std::cout<<"target position: ";
+	// for (int i = 0; i< NO_OF_JOINTS; i++) {
+	// 	std::cout<< joint_positions(i) <<" ";
+	// }
+	// std::cout<< std::endl;
     TrimJoint(joint_positions);
-    return kinematics_status;
+    return kinematics_status + 101;
 }
 
 void Joint_State_Msg_Initialize(int size, char* joint_name_list[]){
@@ -180,10 +217,13 @@ void posmsgCallback(const geometry_msgs::Transform::ConstPtr&  msg)
         for(unsigned int i = 0; i < NO_OF_JOINTS ;i++){
             position[i]  = joint_positions(i) * 180 / 3.1415926;	
 			_current_position(i) = joint_positions(i);
+			_joint_state.position[i] = joint_positions(i);
             std::cout<<position[i]<<" ";
         }			
         memcpy(buff, position, sizeof(double) * 6);
         _p_uc->send(buff, sizeof(double) * 6);
+		std::cout<< "publish robot1 topic"<<std::endl;
+		_p_ik_state_publisher->publish(_joint_state);
     }
 }
 
@@ -192,19 +232,24 @@ void *RefreshRosMsg(void *t){
 	while(ros::ok()){
 		ros::spinOnce();
 	}
-
 }
 
 int main(int argc,char** argv){
     // init ros 
 	ros::init(argc, argv, "ik_solver");
 	ros::start(); 
-	ros::NodeHandle node_handle;
-	ros::Subscriber tarpos_sub = node_handle.subscribe("tarpos_pub", 1000, posmsgCallback);
+	// ros::NodeHandle node_handle;
+	_p_node = std::make_shared<ros::NodeHandle>();
+	ros::Subscriber tarpos_sub = _p_node->subscribe("tarpos_pub", 1000, posmsgCallback);
+
 
     // init ros node
-	ros::NodeHandle *pnode = &node_handle;
-	Joint_State_Msg_Initialize(NO_OF_JOINTS,(char**)j_name_list);
+	// ros::NodeHandle *pnode = &node_handle;
+	// Joint_State_Msg_Initialize(NO_OF_JOINTS,(char**)j_name_list);
+    _joint_state.name.resize(NO_OF_JOINTS);
+    _joint_state.position.resize(NO_OF_JOINTS);
+    for(i = 0; i < NO_OF_JOINTS; i++)
+        _joint_state.name[i] = j_name_list[i];
 
     // init robot tree and chain
 	Tree my_tree;
@@ -212,12 +257,16 @@ int main(int argc,char** argv){
 	Chain chain;
 	
 	my_tree.getChain("world","tcp_Link",chain);
+
     
     // init fk solver
-	ChainFkSolverPos_recursive fksolver = ChainFkSolverPos_recursive(chain);
+	// ChainFkSolverPos_recursive fksolver = ChainFkSolverPos_recursive(chain);
 
 	_p_chain = &chain;
-	_p_fksolver = &fksolver;
+	// _p_fksolver = &fksolver;
+	// _p_fksolver = new ChainFkSolverPos_recursive(chain);
+
+	_p_fksolver = std::make_shared<ChainFkSolverPos_recursive>(chain);
 
 	unsigned int nj = chain.getNrOfJoints();
 	unsigned int ns = chain.getNrOfSegments();
@@ -232,15 +281,33 @@ int main(int argc,char** argv){
 	double eps = 1e-5;
 	double eps_joints = 1e-15;
 	int maxiter = 500;
-	ChainIkSolverPos_LMA iksolver(chain,eps,maxiter,eps_joints);
-    _p_iksolver = &iksolver;
+	// ChainIkSolverPos_LMA iksolver(chain,eps,maxiter,eps_joints);
+	// std::cout << "my tree " << my_tree << std::endl;
+	// std::cout << "chain " << chain << std::endl;
+	// std::cout << "eps = " << eps <<std::endl;
+	// std::cout << "eps_joints = " << eps_joints << std::endl;
+	// std::cout << "maxiter = " << maxiter << std::endl;
+    // _p_iksolver = &iksolver;
+
+	_p_iksolver = std::make_shared<ChainIkSolverPos_LMA>(chain, eps, maxiter, eps_joints);
+
+	// _p_ik_state_publisher = std::make_shared<ros::Publisher>();
+	// _p_ik_state_publisher.Reset(&_p_node->advertise<sensor_msgs::JointState>("robot1/joint_states", 1000));
+
+	// _p_iksolver = new ChainIkSolverPos_LMA(chain, eps, maxiter, eps_joints);
+
 	// construct the destination frame
 	Vector vec(0,0,0);
 	Rotation rot(0,0,0,0,0,0,0,0,0);
     
     // init joint state publisher
-	ros::Publisher jointstates_publisher = pnode->advertise<sensor_msgs::JointState>("joint_states", 1000);
-    _p_publisher = &jointstates_publisher;
+	ros::Publisher pub = 
+		// _p_node->advertise<sensor_msgs::JointState>("robot1/joint_states", 1000);
+		_p_node->advertise<sensor_msgs::JointState>("robot1/joint_states", 1000);
+
+	//std::shared_ptr<ros::Publisher> jointstates_publisher(pub);
+    // _p_publisher = &jointstates_publisher;
+	_p_ik_state_publisher = &pub;
 
 
 	tf::TransformBroadcaster br;
@@ -260,8 +327,11 @@ int main(int argc,char** argv){
 	pthread_create(&ros_thread, &attr, RefreshRosMsg, NULL);
     // init pose sending process
 
-	udp_client uc(UDP_CLIENT_IP, UDP_CLIENT_PORT);
-    _p_uc = &uc;
+	// udp_client uc(UDP_CLIENT_IP, UDP_CLIENT_PORT);
+    // _p_uc = &uc;
+
+	_p_uc = std::make_shared<udp_client>(UDP_CLIENT_IP, UDP_CLIENT_PORT);
+
 	sleep(1);
 
 	pthread_attr_destroy(&attr);
