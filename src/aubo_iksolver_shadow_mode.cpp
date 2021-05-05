@@ -68,6 +68,12 @@ const char* j_name_list[]={
 "wrist1_joint",
 };
 
+const char* joint_position_name_list[]={
+"shoulder_joint",
+"upperArm_joint",
+"foreArm_joint",
+};
+
 void *udpserver(void * t) {
 	(void) t;
 	std::cout<<"init udp server receiving"<<std::endl;
@@ -166,10 +172,18 @@ void *ik_fun(void *t) {
 	Joint_State_Msg_Initialize(NO_OF_JOINTS,(char**)j_name_list);
 
 	Tree my_tree;
-	kdl_parser::treeFromFile("../../aubo_description/urdf/aubo_i3_3R.urdf",my_tree);
-	Chain chain;	
+	kdl_parser::treeFromFile("/home/yan/catkin_ws/src/aubo_description/urdf/aubo_i3_3R.urdf", my_tree);
+
+	Tree reduced_aubo_i3_arm_tree;
+	kdl_parser::treeFromFile("/home/yan/catkin_ws/src/aubo_description/urdf/aubo_i3_reduced.urdf", reduced_aubo_i3_arm_tree);
+
+	Chain chain;
 	my_tree.getChain("world","tcp_Link",chain);
-	ChainFkSolverPos_recursive fksolver = ChainFkSolverPos_recursive(chain);
+
+	Chain reduced_aubo_i3_arm_chain;
+	my_tree.getChain("world","tcp_Link",reduced_aubo_i3_arm_chain);
+	ChainFkSolverPos_recursive fksolver = ChainFkSolverPos_recursive(reduced_aubo_i3_arm_chain);
+	// std::cout<<chain<<std::endl;
 
 	unsigned int nj = chain.getNrOfJoints();
 	unsigned int ns = chain.getNrOfSegments();
@@ -234,8 +248,9 @@ void *ik_fun(void *t) {
 	
 		Frame TargetFrame(rot,vec);		
 		// TargetFrame.M.DoRotX(-M_PI_2);
-		TargetFrame.M.DoRotX(-M_PI);
-		TargetFrame.M.DoRotY(M_PI);
+		// TargetFrame.M.DoRotX(-M_PI);
+		// TargetFrame.M.DoRotY(M_PI);
+		TargetFrame.M.DoRotZ(M_PI);
 
 		begin = clock();
 		kinematics_status = iksolver.CartToJnt(_current_position, TargetFrame, jointpositions);
