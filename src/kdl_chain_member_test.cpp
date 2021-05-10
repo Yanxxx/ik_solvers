@@ -61,4 +61,15 @@ int main(int argc,char** argv){
 	JntArray jointpositions = JntArray(nj);
 	JntArray cur_jointpositions = JntArray(nj);
 	Frame cartpos;
+
+	int link_index[]={2,1,0,0};
+	double link_length[] = {0,0,0,0};
+
+	for (int i = 1; i < 5; i ++){
+		auto link = chain.getSegment(i).getJoint();
+		auto origin = link.JointOrigin();
+		link_length[i-1] = origin[link_index[i-1]];
+		// cout<< origin[0]<<" "<< origin[1]<<" "<< origin[2]<<" "<<endl;
+		cout<<link_length[i - 1]<<endl;
+	}
 }

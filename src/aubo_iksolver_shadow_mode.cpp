@@ -48,6 +48,8 @@ using namespace std;
 bool new_target = false;
 bool program_terminated = false;
 int print_count = 0;
+int link_index[]={2,1,0,0};
+double link_length[] = {0,0,0,0};
 
 geometry_msgs::Transform target;
 geometry_msgs::Transform _delta_pose;
@@ -166,8 +168,57 @@ void TrimJoint(JntArray& joints){
 	}
 }
 
-int AnalyticIK(Vector target_position, vector<double> quaternion, JntArray& joint_position){
+double l1 = link_length[0];
+double l2 = link_length[1];
+double l3 = link_length[2];
+double l4 = link_length[3];
 
+int AnalyticIK(Vector target_position, Rotation quaternion, JntArray& joint_position){
+	double segment_2_3 = 0.1;
+
+	double x = target_position[0];
+	double y = target_position[1];
+	double z = target_position[2] - l1;
+
+	double xy = sqrt(x*x + y*y - l2*l2);
+
+	double j1 = atan2(y,x) - atan2(xy,l2);
+
+	double a = xy * xy + z * z;
+	double b = l3 * l3 - l4 * l4 + a;
+
+	double criterion = b*b+4*a*l3*l3;
+	if (criterion >= 0){
+		criterion = sqrt(criterion);
+	}
+
+	double x1 = (xy * b + z * criterion) / 2 / a;
+	double x2 = (xy * b - z * criterion) / 2 / a;
+
+	double y1 = (z * b - xy * criterion) / 2 / a;
+	double y2 = (z * b + xy * criterion) / 2 / a;
+	
+	double j2_tmp_1 = atan2(y1,x1);
+	double j2_tmp_2 = atan2(y2,x2);
+
+	double j3_tmp_1 = atan2((z - y1), (xy - x1)) - j2_tmp_1;
+	double j3_tmp_2 = atan2((z - y2), (xy - x2)) - j2_tmp_2;
+
+	double j2 = 0 , j3 = 0, j4 = 0;
+
+	if (j2_tmp_1 >= 0 && j2_tmp_1 <= 0 && j3_tmp_1 >= 0 && j3_tmp_1 <= 0){
+		j2 = j2_tmp_1;
+		j3 = j3_tmp_1;
+	}
+	if (j2_tmp_2 >= 0 && j2_tmp_2 <= 0 && j3_tmp_2 >= 0 && j3_tmp_2 <= 0){
+		j2 = j2_tmp_2;
+		j3 = j3_tmp_2;
+	}
+
+	joint_position(0) = j1;
+	joint_position(1) = j2;
+	joint_position(2) = j3;
+	joint_position(3) = j4;
 }
 
 void *ik_fun(void *t) {
@@ -188,6 +239,14 @@ void *ik_fun(void *t) {
 	my_tree.getChain("world","tcp_Link",reduced_aubo_i3_arm_chain);
 	ChainFkSolverPos_recursive fksolver = ChainFkSolverPos_recursive(reduced_aubo_i3_arm_chain);
 	// std::cout<<chain<<std::endl;
+	
+	for (int i = 1; i < 5; i ++){
+		auto link = chain.getSegment(i).getJoint();
+		auto origin = link.JointOrigin();
+		link_length[i-1] = origin[link_index[i-1]];
+		// cout<< origin[0]<<" "<< origin[1]<<" "<< origin[2]<<" "<<endl;
+		cout<<link_length[i - 1]<<endl;
+	}
 
 	unsigned int nj = chain.getNrOfJoints();
 	unsigned int ns = chain.getNrOfSegments();
@@ -257,7 +316,9 @@ void *ik_fun(void *t) {
 		TargetFrame.M.DoRotZ(M_PI);
 
 		begin = clock();
-		kinematics_status = iksolver.CartToJnt(_current_position, TargetFrame, jointpositions);
+		// kinematics_status = iksolver.CartToJnt(_current_position, TargetFrame, jointpositions);
+
+		AnalyticIK(vec, rot, jointpositions);
 
 
 		TrimJoint(jointpositions);		
