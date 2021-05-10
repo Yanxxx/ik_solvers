@@ -52,9 +52,6 @@ int main(int argc,char** argv){
 	Tree my_tree;
 	kdl_parser::treeFromFile("/home/yan/catkin_ws/src/aubo_description/urdf/aubo_i3_3R.urdf", my_tree);
 
-	Tree reduced_aubo_i3_arm_tree;
-	kdl_parser::treeFromFile("/home/yan/catkin_ws/src/aubo_description/urdf/aubo_i3_reduced.urdf", reduced_aubo_i3_arm_tree);
-
 	Chain chain;
 	my_tree.getChain("world","tcp_Link",chain);
 
