@@ -166,6 +166,10 @@ void TrimJoint(JntArray& joints){
 	}
 }
 
+int AnalyticIK(Vector target_position, vector<double> quaternion, JntArray& joint_position){
+
+}
+
 void *ik_fun(void *t) {
 	ros::NodeHandle *pnode = (ros::NodeHandle *)t;
 	_p_node = pnode;
@@ -254,6 +258,8 @@ void *ik_fun(void *t) {
 
 		begin = clock();
 		kinematics_status = iksolver.CartToJnt(_current_position, TargetFrame, jointpositions);
+
+
 		TrimJoint(jointpositions);		
 		end = clock();
 
