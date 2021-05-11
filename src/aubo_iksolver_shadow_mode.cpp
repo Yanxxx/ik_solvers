@@ -34,6 +34,7 @@
 #include "udp_client.h"
 #include "udp_server.h"
 #include <cmath>
+#include <vector>
 
 
 using namespace KDL; 
@@ -102,6 +103,7 @@ void *udpserver(void * t) {
 
 	print_count = 0;
 	int recv=0;
+	std::cout<<"start udp receiving *************"<<std::endl;
 	while (!program_terminated) {
 		recv = us.timed_recv(buff, 1024, 50);
 		memcpy(recv_data, buff, sizeof(double) * 12);
@@ -180,9 +182,14 @@ int AnalyticIK(Vector target_position, Rotation quaternion, JntArray& joint_posi
 	double y = target_position[1];
 	double z = target_position[2] - l1;
 
+
+	cout<< " link length, l1: " << l1 << " l2: " << l2 << " l3: " << l3 << " l4: " << l4 << endl;
+
 	double xy = sqrt(x*x + y*y - l2*l2);
 
 	double j1 = atan2(y,x) - atan2(xy,l2);
+
+	cout<< "virtual sway: " << atan2(y,x) << " arm triagnle: " << atan2(xy,l2) << endl;
 
 	double a = xy * xy + z * z;
 	double b = l3 * l3 - l4 * l4 + a;
@@ -190,35 +197,74 @@ int AnalyticIK(Vector target_position, Rotation quaternion, JntArray& joint_posi
 	double criterion = b*b+4*a*l3*l3;
 	if (criterion >= 0){
 		criterion = sqrt(criterion);
+		double x1 = (xy * b + z * criterion) / 2 / a;
+		double x2 = (xy * b - z * criterion) / 2 / a;
+
+		double y1 = (z * b - xy * criterion) / 2 / a;
+		double y2 = (z * b + xy * criterion) / 2 / a;
+		
+		cout<< "ee position: x: " << xy << " y: " << z << endl;
+
+		cout<< "solved joint results: x1: " << x1 
+		<< " x2: " << x2 << " y1: " << y1 << " y2: " << y2 << endl;
+
+		double j2_tmp_1 = atan2(y1,x1);
+		double j2_tmp_2 = atan2(y2,x2);
+
+		double j3_tmp_1 = atan2((z - y1), (xy - x1)) - j2_tmp_1;
+		double j3_tmp_2 = atan2((z - y2), (xy - x2)) - j2_tmp_2;
+
+		cout<< "solved joint results: j2_1: " << j2_tmp_1 
+		<< " j2_2: " << j2_tmp_2 << " j3_1: " << j3_tmp_1 << " j3_2: " << j3_tmp_2 << endl;
+
+		double j2 = 0 , j3 = 0, j4 = 0;
+
+		if (j2_tmp_1 >= -M_PI_2 && j2_tmp_1 <= M_PI_2 
+		&& j3_tmp_1 >= 0 && j3_tmp_1 <= M_PI_2){
+			j2 = j2_tmp_1;
+			j3 = j3_tmp_1;
+		}
+		if (j2_tmp_2 >= 0 && j2_tmp_2 <= M_PI_2 
+		&& j3_tmp_2 >= 0 && j3_tmp_2 <= M_PI){
+			j2 = j2_tmp_2;
+			j3 = j3_tmp_2;
+		}
+
+		joint_position(0) = j1;
+		joint_position(1) = j2;
+		joint_position(2) = j3;
+		joint_position(3) = j4;
+
+		return 0;
+	}
+	else{
+		double j2 = atan2(xy,z);
+		double j3 = 0;
+		double j4 = 0;
+
+		joint_position(0) = j1;
+		joint_position(1) = j2;
+		joint_position(2) = j3;
+		joint_position(3) = j4;
+		return 0;
 	}
 
-	double x1 = (xy * b + z * criterion) / 2 / a;
-	double x2 = (xy * b - z * criterion) / 2 / a;
+}
 
-	double y1 = (z * b - xy * criterion) / 2 / a;
-	double y2 = (z * b + xy * criterion) / 2 / a;
-	
-	double j2_tmp_1 = atan2(y1,x1);
-	double j2_tmp_2 = atan2(y2,x2);
+int ForwardKinematic(vector<double>& translation){
+	double j1 = _current_position(0);
+	double j2 = _current_position(1);
+	double j3 = _current_position(2);
 
-	double j3_tmp_1 = atan2((z - y1), (xy - x1)) - j2_tmp_1;
-	double j3_tmp_2 = atan2((z - y2), (xy - x2)) - j2_tmp_2;
+	double xy = l3 * sin(j2) + l4 * sin(j2 + j3);
+	double z = l3 * cos(j2) + l4 * cos(j2 + j3) + l1;
 
-	double j2 = 0 , j3 = 0, j4 = 0;
+	double x = sqrt(xy * xy + l2 * l2) * cos(j1 + atan2(xy, l2));
+	double y = sqrt(xy * xy + l2 * l2) * sin(j1 + atan2(xy, l2));
 
-	if (j2_tmp_1 >= 0 && j2_tmp_1 <= 0 && j3_tmp_1 >= 0 && j3_tmp_1 <= 0){
-		j2 = j2_tmp_1;
-		j3 = j3_tmp_1;
-	}
-	if (j2_tmp_2 >= 0 && j2_tmp_2 <= 0 && j3_tmp_2 >= 0 && j3_tmp_2 <= 0){
-		j2 = j2_tmp_2;
-		j3 = j3_tmp_2;
-	}
-
-	joint_position(0) = j1;
-	joint_position(1) = j2;
-	joint_position(2) = j3;
-	joint_position(3) = j4;
+	translation[0] = x;
+	translation[1] = y;
+	translation[2] = z;
 }
 
 void *ik_fun(void *t) {
@@ -236,7 +282,7 @@ void *ik_fun(void *t) {
 	my_tree.getChain("world","tcp_Link",chain);
 
 	Chain reduced_aubo_i3_arm_chain;
-	my_tree.getChain("world","tcp_Link",reduced_aubo_i3_arm_chain);
+	my_tree.getChain("world","wrist1_link",reduced_aubo_i3_arm_chain);
 	ChainFkSolverPos_recursive fksolver = ChainFkSolverPos_recursive(reduced_aubo_i3_arm_chain);
 	// std::cout<<chain<<std::endl;
 	
@@ -247,6 +293,11 @@ void *ik_fun(void *t) {
 		// cout<< origin[0]<<" "<< origin[1]<<" "<< origin[2]<<" "<<endl;
 		cout<<link_length[i - 1]<<endl;
 	}
+
+	l1 = link_length[0];
+	l2 = link_length[1];
+	l3 = link_length[2];
+	l4 = link_length[3];
 
 	unsigned int nj = chain.getNrOfJoints();
 	unsigned int ns = chain.getNrOfSegments();
@@ -263,13 +314,12 @@ void *ik_fun(void *t) {
 
 	struct tms begin_tms,end_tms;
 	clock_t begin,end;
-	bool kinematics_status;
+	int kinematics_status;
 	double position[6]={0};
 	position[4] = 90;
 	position[5] = 0;
 	char buff[1024] = "";
 	udp_client uc(UDP_CLIENT_IP, UDP_CLIENT_PORT);
-
 
 	double eps = 1e-5;
 	double eps_joints = 1e-15;
@@ -283,6 +333,8 @@ void *ik_fun(void *t) {
 	
 	Frame eeFrame;
 
+	std::vector<double> current_cart_position(3,0); 
+
 	while(ros::ok()){
 		ros::spinOnce();
 		if(!new_target){
@@ -295,13 +347,23 @@ void *ik_fun(void *t) {
 		}
 		std::cout<<std::endl;
 
-		fksolver.JntToCart(_current_position, eeFrame);
-		target.translation.x = _delta_pose.translation.x + eeFrame.p[0];
-		target.translation.y = _delta_pose.translation.y + eeFrame.p[1];
-		target.translation.z = _delta_pose.translation.z + eeFrame.p[2];
+		// fksolver.JntToCart(_current_position, eeFrame);
+		// target.translation.x = _delta_pose.translation.x + eeFrame.p[0];
+		// target.translation.y = _delta_pose.translation.y + eeFrame.p[1];
+		// target.translation.z = _delta_pose.translation.z + eeFrame.p[2];
+		// cout<< "current position: x: " << eeFrame.p[0] <<" y: "<< eeFrame.p[1] <<" z: " << eeFrame.p[2] <<endl;
+		// cout<< "target position: x: " << vec[0] <<" y: "<< vec[1] <<" z: " << vec[2] <<endl;
+
+		ForwardKinematic(current_cart_position);
+		target.translation.x = _delta_pose.translation.x + current_cart_position[0];
+		target.translation.y = _delta_pose.translation.y + current_cart_position[1];
+		target.translation.z = _delta_pose.translation.z + current_cart_position[2];
 		vec.x(target.translation.x);
 		vec.y(target.translation.y);
 		vec.z(target.translation.z);
+
+		cout<< "current position: x: " << current_cart_position[0] <<" y: "<< current_cart_position[1] <<" z: " << current_cart_position[2] <<endl;
+		cout<< "target position: x: " << vec[0] <<" y: "<< vec[1] <<" z: " << vec[2] <<endl;
 
 		rot = Rotation::Quaternion(
 				_delta_pose.rotation.x,
@@ -318,10 +380,13 @@ void *ik_fun(void *t) {
 		begin = clock();
 		// kinematics_status = iksolver.CartToJnt(_current_position, TargetFrame, jointpositions);
 
-		AnalyticIK(vec, rot, jointpositions);
+		kinematics_status = AnalyticIK(vec, TargetFrame.M, jointpositions);
 
+		cout << "kinematic status: "<< kinematics_status 
+		<< " joint 1: " << jointpositions(0) << " joint 2: " << jointpositions(1) 
+		<< " joint 3: " << jointpositions(2) << " joint 4: " << jointpositions(3) << endl;
 
-		TrimJoint(jointpositions);		
+		//TrimJoint(jointpositions);		
 		end = clock();
 
 		if(kinematics_status >= 0){
