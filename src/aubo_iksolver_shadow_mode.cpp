@@ -187,9 +187,9 @@ void orimsgCallback(const geometry_msgs::Transform::ConstPtr&  msg)
 	double roll=0, pitch=0, yaw=0;
 	_rotation.GetRPY(roll, pitch, yaw);
 
-	double joint4_zero_point = _current_position(2) + _current_position(1) - M_PI_2;
-	_current_position(3) = yaw + joint4_zero_point;
-	joint_state.position[3] = yaw + joint4_zero_point;
+	double joint4_zero_point = _current_position(2) + _current_position(1) - M_PI;
+	_current_position(3) = roll + joint4_zero_point;
+	joint_state.position[3] = roll + joint4_zero_point;
 
 	for(unsigned int i = 0; i < NO_OF_JOINTS ;i++){
 		position[i]  = _current_position(i) * 180 / M_PI;	
@@ -210,7 +210,7 @@ void orimsgCallback(const geometry_msgs::Transform::ConstPtr&  msg)
 	Frame eeFrame;
 	_robot_fk_solver->JntToCart(_current_position, eeFrame);
 	eeFrame.M.GetRPY(roll, pitch, yaw);
-	_yaw = yaw;
+	_yaw = roll;
 }
 
 double Bound(double angle){
@@ -358,7 +358,6 @@ void *ik_fun(void *t) {
 		rot = Rotation::Identity();
 		rot.DoRotX(M_PI);
 		rot.DoRotZ(-M_PI);
-
 		ee_yaw = Rotation::Identity();
 		ee_yaw.DoRotX(_yaw);
 
@@ -384,7 +383,7 @@ void *ik_fun(void *t) {
 
 		std::cout<<"kinematic status:  "<< kinematics_status << endl;
 		std::cout<< "IK Joint Positions:\t";
-		kinematics_status = iksolver.CartToJnt(_current_position, TargetFrame, jointpositions);
+		// kinematics_status = iksolver.CartToJnt(_current_position, TargetFrame, jointpositions);
 
 		for(int i = 0; i< NO_OF_JOINTS;i++){
 			std::cout << setprecision(3) << "\tjoint "<< i + 1 <<": " << jointpositions(i) * 180 / M_PI;
