@@ -71,6 +71,8 @@ geometry_msgs::Transform _delta_pose;
 sensor_msgs::JointState joint_state;
 ros::NodeHandle * _p_node;
 
+udp_client* _udp_angle_publsher;
+
 JntArray _current_position(NO_OF_JOINTS);
 JntArray current_velocity(NO_OF_JOINTS);
 JntArray robot_position(NO_OF_JOINTS);
@@ -78,7 +80,7 @@ JntArray robot_velocity(NO_OF_JOINTS);
 JntArray target_joint_pose(NO_OF_JOINTS);
 Rotation _rotation(1,0,0,0,1,0,0,0,1);
 Vector _position(0,0,0);
-double _yaw = 0;
+double _yaw = - M_PI_2 / 2;//0;
 
 const char* j_name_list[]={
 "shoulder_joint",
@@ -170,6 +172,7 @@ void posmsgCallback(const geometry_msgs::Transform::ConstPtr&  msg)
 
 void orimsgCallback(const geometry_msgs::Transform::ConstPtr&  msg)
 {
+	char buff[128] = {0};
 	_delta_pose.rotation.x = msg->rotation.x;
 	_delta_pose.rotation.y = msg->rotation.y;
 	_delta_pose.rotation.z = msg->rotation.z;
@@ -180,21 +183,34 @@ void orimsgCallback(const geometry_msgs::Transform::ConstPtr&  msg)
 				_delta_pose.rotation.y,
 				_delta_pose.rotation.z,
 				_delta_pose.rotation.w);
-
+	double position[6] = {0};
 	double roll=0, pitch=0, yaw=0;
 	_rotation.GetRPY(roll, pitch, yaw);
 
-	_current_position(3) = yaw;
-	joint_state.position[3] = yaw;
+	double joint4_zero_point = _current_position(2) + _current_position(1) - M_PI_2;
+	_current_position(3) = yaw + joint4_zero_point;
+	joint_state.position[3] = yaw + joint4_zero_point;
+
+	for(unsigned int i = 0; i < NO_OF_JOINTS ;i++){
+		position[i]  = _current_position(i) * 180 / M_PI;	
+	}
+
+	std::cout<< "Orientation Joint Positions:\t";
+	for(int i = 0; i< NO_OF_JOINTS;i++){
+		std::cout << setprecision(3) << "\tjoint "<< i + 1 <<": " << position[i];
+	}
+	std::cout<<std::endl;
+
+	memcpy(buff, position, sizeof(double) * 6);
+	_udp_angle_publsher->send(buff, sizeof(double) * 6);
+
+
 	joint_state.header.stamp = ros::Time::now();
 	simulator_joint_publisher->publish(joint_state);
 	Frame eeFrame;
 	_robot_fk_solver->JntToCart(_current_position, eeFrame);
 	eeFrame.M.GetRPY(roll, pitch, yaw);
 	_yaw = yaw;
-	// _position[0] = eeFrame.p[0];
-	// _position[1] = eeFrame.p[1];
-	// _position[2] = eeFrame.p[2];
 }
 
 double Bound(double angle){
@@ -256,7 +272,6 @@ void *ik_fun(void *t) {
 		auto link = chain.getSegment(i).getJoint();
 		auto origin = link.JointOrigin();
 		link_length[i-1] = origin[link_index[i-1]];
-		// cout<< origin[0]<<" "<< origin[1]<<" "<< origin[2]<<" "<<endl;
 		cout<<link_length[i - 1]<<endl;
 	}
 
@@ -289,6 +304,7 @@ void *ik_fun(void *t) {
 	position[5] = 0;
 	char buff[1024] = "";
 	udp_client uc(UDP_CLIENT_IP, UDP_CLIENT_PORT);
+	_udp_angle_publsher = &uc;
 
 	double eps = 1e-5;
 	double eps_joints = 1e-15;
@@ -341,32 +357,35 @@ void *ik_fun(void *t) {
 
 		rot = Rotation::Identity();
 		rot.DoRotX(M_PI);
-		rot.DoRotZ(-M_PI_2);
+		rot.DoRotZ(-M_PI);
 
 		ee_yaw = Rotation::Identity();
-		ee_yaw.DoRotY(_yaw);
-		rot = ee_yaw * rot;
+		ee_yaw.DoRotX(_yaw);
 
-		Frame TargetFrame(rot, vec);
 		// TargetFrame.M.DoRotX(M_PI);
 		// TargetFrame.M.DoRotZ(-M_PI_2);
 
 		begin = clock();
-		kinematics_status = iksolver.CartToJnt(_current_position, TargetFrame, jointpositions);
+		// kinematics_status = iksolver.CartToJnt(_current_position, TargetFrame, jointpositions);
 
 		jointpositions(4) = M_PI_2;
 		jointpositions(5) = 0;
-		fksolver.JntToCart(jointpositions, eeFrame);
-		double r = 0, p = 0, y = 0;
+		// fksolver.JntToCart(jointpositions, eeFrame);
+		// double r = 0, p = 0, y = 0;
 
 		ee_base = Rotation::Identity();
-		ee_base.DoRotZ(jointpositions(0));
+		double target_angle = atan2(vec[1],vec[0]) - acos(l2 / sqrt(vec[0]*vec[0]+vec[1]*vec[1]));
+		ee_base.DoRotZ(target_angle);
+		rot = ee_yaw * rot;
 		rot = ee_base  * rot; 
-		Frame ftf(rot, eeFrame.p);
-		kinematics_status = iksolver.CartToJnt(_current_position, ftf, jointpositions);
+		// Frame ftf(rot, eeFrame.p);
+		Frame TargetFrame(rot, vec);
+		kinematics_status = iksolver.CartToJnt(_current_position, TargetFrame, jointpositions);
 
 		std::cout<<"kinematic status:  "<< kinematics_status << endl;
 		std::cout<< "IK Joint Positions:\t";
+		kinematics_status = iksolver.CartToJnt(_current_position, TargetFrame, jointpositions);
+
 		for(int i = 0; i< NO_OF_JOINTS;i++){
 			std::cout << setprecision(3) << "\tjoint "<< i + 1 <<": " << jointpositions(i) * 180 / M_PI;
 		}
