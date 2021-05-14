@@ -163,11 +163,6 @@ void posmsgCallback(const geometry_msgs::Transform::ConstPtr&  msg)
 	_delta_pose.translation.y = msg->translation.y;
 	_delta_pose.translation.z = msg->translation.z;
 
-	// _delta_pose.rotation.x = msg->rotation.x;
-	// _delta_pose.rotation.y = msg->rotation.y;
-	// _delta_pose.rotation.z = msg->rotation.z;
-	// _delta_pose.rotation.w = msg->rotation.w;	
-
 	// std::cout<< "delta distance: "<< msg->translation.x<<" ";
 	// std::cout<< msg->translation.y<<" ";
 	// std::cout<< msg->translation.z<<std::endl;
@@ -175,19 +170,10 @@ void posmsgCallback(const geometry_msgs::Transform::ConstPtr&  msg)
 
 void orimsgCallback(const geometry_msgs::Transform::ConstPtr&  msg)
 {
-	// new_target = true;
-	// _delta_pose.translation.x = msg->translation.x;
-	// _delta_pose.translation.y = msg->translation.y;
-	// _delta_pose.translation.z = msg->translation.z;
-
 	_delta_pose.rotation.x = msg->rotation.x;
 	_delta_pose.rotation.y = msg->rotation.y;
 	_delta_pose.rotation.z = msg->rotation.z;
 	_delta_pose.rotation.w = msg->rotation.w;	
-
-	_delta_pose.translation.x = 0;
-	_delta_pose.translation.y = 0;
-	_delta_pose.translation.z = 0;
 
 	_rotation = Rotation::Quaternion(
 				_delta_pose.rotation.x,
@@ -197,7 +183,6 @@ void orimsgCallback(const geometry_msgs::Transform::ConstPtr&  msg)
 
 	double roll=0, pitch=0, yaw=0;
 	_rotation.GetRPY(roll, pitch, yaw);
-	_yaw = yaw;
 
 	_current_position(3) = yaw;
 	joint_state.position[3] = yaw;
@@ -207,13 +192,11 @@ void orimsgCallback(const geometry_msgs::Transform::ConstPtr&  msg)
 	_robot_fk_solver->JntToCart(_current_position, eeFrame);
 	eeFrame.M.GetRPY(roll, pitch, yaw);
 	_yaw = yaw;
-	_position[0] = eeFrame.p[0];
-	_position[1] = eeFrame.p[1];
-	_position[2] = eeFrame.p[2];
-	// std::cout<< "delta distance: "<< msg->translation.x<<" ";
-	// std::cout<< msg->translation.y<<" ";
-	// std::cout<< msg->translation.z<<std::endl;
+	// _position[0] = eeFrame.p[0];
+	// _position[1] = eeFrame.p[1];
+	// _position[2] = eeFrame.p[2];
 }
+
 double Bound(double angle){
 	while(angle>M_PI||angle < -M_PI){
 		if(angle>M_PI) angle -=2*M_PI;
@@ -234,98 +217,6 @@ double l2 = link_length[1];
 double l3 = link_length[2];
 double l4 = link_length[3];
 
-int AnalyticIK(Vector target_position, Rotation quaternion, JntArray& joint_position){
-	double segment_2_3 = 0.1;
-
-	double x = target_position[0];
-	double y = target_position[1];
-	double z = target_position[2] - l1;
-
-
-	cout<< " link length, l1: " << l1 << " l2: " << l2 << " l3: " << l3 << " l4: " << l4 << endl;
-
-	double xy = sqrt(x*x + y*y - l2*l2);
-
-	double j1 = atan2(y,x) - atan2(xy,l2);
-
-	cout<< "virtual sway: " << atan2(y,x) << " arm triagnle: " << atan2(xy,l2) << endl;
-
-	double a = xy * xy + z * z;
-	double b = l3 * l3 - l4 * l4 + a;
-
-	double criterion = b*b+4*a*l3*l3;
-	if (criterion >= 0){
-		criterion = sqrt(criterion);
-		double x1 = (xy * b + z * criterion) / 2 / a;
-		double x2 = (xy * b - z * criterion) / 2 / a;
-
-		double y1 = (z * b - xy * criterion) / 2 / a;
-		double y2 = (z * b + xy * criterion) / 2 / a;
-		
-		cout<< "ee position: x: " << xy << " y: " << z << endl;
-
-		cout<< "solved joint results: x1: " << x1 
-		<< " x2: " << x2 << " y1: " << y1 << " y2: " << y2 << endl;
-
-		double j2_tmp_1 = atan2(y1,x1);
-		double j2_tmp_2 = atan2(y2,x2);
-
-		double j3_tmp_1 = atan2((z - y1), (xy - x1)) - j2_tmp_1;
-		double j3_tmp_2 = atan2((z - y2), (xy - x2)) - j2_tmp_2;
-
-		cout<< "solved joint results: j2_1: " << j2_tmp_1 
-		<< " j2_2: " << j2_tmp_2 << " j3_1: " << j3_tmp_1 << " j3_2: " << j3_tmp_2 << endl;
-
-		double j2 = 0 , j3 = 0, j4 = 0;
-
-		if (j2_tmp_1 >= -M_PI_2 && j2_tmp_1 <= M_PI_2 
-		&& j3_tmp_1 >= 0 && j3_tmp_1 <= M_PI_2){
-			j2 = j2_tmp_1;
-			j3 = j3_tmp_1;
-		}
-		if (j2_tmp_2 >= 0 && j2_tmp_2 <= M_PI_2 
-		&& j3_tmp_2 >= 0 && j3_tmp_2 <= M_PI){
-			j2 = j2_tmp_2;
-			j3 = j3_tmp_2;
-		}
-
-		joint_position(0) = j1;
-		joint_position(1) = j2;
-		joint_position(2) = j3;
-		joint_position(3) = j4;
-
-		return 0;
-	}
-	else{
-		double j2 = atan2(xy,z);
-		double j3 = 0;
-		double j4 = 0;
-
-		joint_position(0) = j1;
-		joint_position(1) = j2;
-		joint_position(2) = j3;
-		joint_position(3) = j4;
-		return 0;
-	}
-
-}
-
-int ForwardKinematic(vector<double>& translation){
-	double j1 = _current_position(0);
-	double j2 = _current_position(1);
-	double j3 = _current_position(2);
-
-	double xy = l3 * sin(j2) + l4 * sin(j2 + j3);
-	double z = l3 * cos(j2) + l4 * cos(j2 + j3) + l1;
-
-	double x = sqrt(xy * xy + l2 * l2) * cos(j1 + atan2(xy, l2));
-	double y = sqrt(xy * xy + l2 * l2) * sin(j1 + atan2(xy, l2));
-
-	translation[0] = x;
-	translation[1] = y;
-	translation[2] = z;
-}
-
 int InBound(Vector& position){
 	if (position[0] <= X_LOWER_BOUND) position[0] = X_LOWER_BOUND;
 	if (position[0] >= X_UPPER_BOUND) position[0] = X_UPPER_BOUND;
@@ -334,6 +225,10 @@ int InBound(Vector& position){
 	if (position[2] <= Z_LOWER_BOUND) position[2] = Z_LOWER_BOUND;
 	if (position[2] >= Z_UPPER_BOUND) position[2] = Z_UPPER_BOUND;
 
+	return 0;
+}
+
+int INFO(string title, double data[]){
 	return 0;
 }
 
@@ -403,6 +298,10 @@ void *ik_fun(void *t) {
 	// construct the destination frame
 	Vector vec(0,0,0);
 	Rotation rot(0,0,0,0,0,0,0,0,0);
+	Rotation ee_yaw(1,0,0,0,1,0,0,0,1);
+
+	Rotation ee_base(1,0,0,0,1,0,0,0,1);
+
 	ros::Publisher jointstates_publisher = 
 		pnode->advertise<sensor_msgs::JointState>("robot1/joint_states", 1000);
 	simulator_joint_publisher = &jointstates_publisher;
@@ -417,83 +316,54 @@ void *ik_fun(void *t) {
 			continue;
 		}
 
-		// std::cout<<"current pose: ";
-		// for(int i = 0; i< NO_OF_JOINTS;i++){
-		// 	std::cout<<_current_position(i)* 180 / 3.1415926<<" ";
-		// }
-		// std::cout<<std::endl;
-
 		fksolver.JntToCart(_current_position, eeFrame);
-		// target.translation.x = _delta_pose.translation.x + eeFrame.p[0];
-		// target.translation.y = _delta_pose.translation.y + eeFrame.p[1];
-		// target.translation.z = _delta_pose.translation.z + eeFrame.p[2];
 
-
-		_position[0] = _delta_pose.translation.x + eeFrame.p[0];
-		_position[1] = _delta_pose.translation.y + eeFrame.p[1];
-		_position[2] = _delta_pose.translation.z + eeFrame.p[2];
+		vec[0] = _delta_pose.translation.x + eeFrame.p[0];
+		vec[1] = _delta_pose.translation.y + eeFrame.p[1];
+		vec[2] = _delta_pose.translation.z + eeFrame.p[2];
 		
-		// ForwardKinematic(current_cart_position);
-		// target.translation.x = _delta_pose.translation.x + current_cart_position[0];
-		// target.translation.y = _delta_pose.translation.y + current_cart_position[1];
-		// target.translation.z = _delta_pose.translation.z + current_cart_position[2];
-		vec.x(_position[0]);
-		vec.y(_position[1]);
-		vec.z(_position[2]);
-
 		cout << setprecision(3) << "delta position:\t\tx: " << _delta_pose.translation.x <<
 		"\t\ty: "<< _delta_pose.translation.y <<
 		"\t\tz: " << _delta_pose.translation.z <<endl;
-		cout << setprecision(3) << "current position:\tx: " << eeFrame.p[0] <<"\t\ty: "<< eeFrame.p[1] <<"\t\tz: " << eeFrame.p[2] <<endl;
-		cout << setprecision(3) << "target position:\tx: " << vec[0] <<"\t\ty: "<< vec[1] <<"\t\tz: " << vec[2] <<endl;
+
+		cout << setprecision(3) << "current position:\tx: " << eeFrame.p[0] <<
+		"\t\ty: "<< eeFrame.p[1] <<
+		"\t\tz: " << eeFrame.p[2] <<endl;
+
+		cout << setprecision(3) << "target position:\tx: " << vec[0] <<
+		"\t\ty: "<< vec[1] <<
+		"\t\tz: " << vec[2] <<endl;
+
 		InBound(vec);
-		cout << setprecision(3) << "Inbound position:\tx: " << vec[0] <<"\t\ty: "<< vec[1] <<"\t\tz: " << vec[2] <<endl;
-		// cout<< "current position: x: " << current_cart_position[0] <<" y: "<< current_cart_position[1] <<" z: " << current_cart_position[2] <<endl;
-		// cout<< "target position: x: " << vec[0] <<" y: "<< vec[1] <<" z: " << vec[2] <<endl;
+		cout << setprecision(3) << "Inbound position:\tx: " << vec[0] <<
+		"\t\ty: "<< vec[1] <<
+		"\t\tz: " << vec[2] <<endl;
 
-		// rot = Rotation::Quaternion(
-		// 		_delta_pose.rotation.x,
-		// 		_delta_pose.rotation.y,
-		// 		_delta_pose.rotation.z,
-		// 		_delta_pose.rotation.w);
+		rot = Rotation::Identity();
+		rot.DoRotX(M_PI);
+		rot.DoRotZ(-M_PI_2);
 
-		// rot = _rotation;
+		ee_yaw = Rotation::Identity();
+		ee_yaw.DoRotY(_yaw);
+		rot = ee_yaw * rot;
 
-		// double theta = atan2(sqrt(vec[1] * vec[1] + vec[0] * vec[0]), l2) + M_PI_2;
-		// Rotation ee_frame(1,0,0,0,-1,0,0,0,-1);
-		// double ct = cos(theta);
-		// double st = sin(theta);
-		// Rotation relative_rotation(ct,st,0,-st, ct, 0, 0,0,1);
-
-		// rot = Rotation::Quaternion(0,0,0,1);
-		// rot = relative_rotation * ee_frame;
-	
-		Frame TargetFrame(rot,vec);		
-		// TargetFrame.M.DoRotX(-M_PI_2);
-		TargetFrame.M.DoRotX(M_PI);
-		// TargetFrame.M.DoRotY(M_PI);
-		TargetFrame.M.DoRotZ(-M_PI_2);
-		// TargetFrame.M.DoRotZ(M_PI_2);
-		//TargetFrame.M.DoRotZ(-theta);
+		Frame TargetFrame(rot, vec);
+		// TargetFrame.M.DoRotX(M_PI);
+		// TargetFrame.M.DoRotZ(-M_PI_2);
 
 		begin = clock();
 		kinematics_status = iksolver.CartToJnt(_current_position, TargetFrame, jointpositions);
+
 		jointpositions(4) = M_PI_2;
 		jointpositions(5) = 0;
 		fksolver.JntToCart(jointpositions, eeFrame);
 		double r = 0, p = 0, y = 0;
-		eeFrame.M.GetRPY(r, p, y);
-		rot = Rotation::RPY(r,p,_yaw);
-		Frame ftf(rot, _position);
-		kinematics_status = iksolver.CartToJnt(_current_position, eeFrame, jointpositions);
 
-
-	_position[0] = eeFrame.p[0];
-	_position[1] = eeFrame.p[1];
-	_position[2] = eeFrame.p[2];
-
-
-		// kinematics_status = AnalyticIK(vec, TargetFrame.M, jointpositions);
+		ee_base = Rotation::Identity();
+		ee_base.DoRotZ(jointpositions(0));
+		rot = ee_base  * rot; 
+		Frame ftf(rot, eeFrame.p);
+		kinematics_status = iksolver.CartToJnt(_current_position, ftf, jointpositions);
 
 		std::cout<<"kinematic status:  "<< kinematics_status << endl;
 		std::cout<< "IK Joint Positions:\t";
