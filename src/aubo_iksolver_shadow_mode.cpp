@@ -80,7 +80,7 @@ JntArray robot_velocity(NO_OF_JOINTS);
 JntArray target_joint_pose(NO_OF_JOINTS);
 Rotation _rotation(1,0,0,0,1,0,0,0,1);
 Vector _position(0,0,0);
-double _yaw = - M_PI_2 / 2;//0;
+double _yaw = M_PI / 4;//0;
 
 const char* j_name_list[]={
 "shoulder_joint",
@@ -187,6 +187,24 @@ void orimsgCallback(const geometry_msgs::Transform::ConstPtr&  msg)
 	double roll=0, pitch=0, yaw=0;
 	_rotation.GetRPY(roll, pitch, yaw);
 
+	cout << "Controller input angle: \t" << roll << endl;
+
+	cout << "conditions: "  << (roll > -M_PI * 2 / 3 && roll <= 0) 
+			<< " " << ((roll < 0 && roll <= -M_PI * 2 / 3) || (roll > 0 && roll >= M_PI * 2 / 3))
+			<< " " << (roll < M_PI * 2 / 3 && roll >= 0) << endl;
+
+	if (roll > -M_PI * 2 / 3 && roll <= 0) {
+		roll = M_PI / 4;
+	}
+	else if ((roll < 0 && roll <= -M_PI * 2 / 3) || (roll > 0 && roll >= M_PI * 2 / 3)) {
+		roll = 0;
+	}
+	else if (roll < M_PI * 2 / 3 && roll >= 0){
+		roll = -M_PI / 4;
+	} 
+
+	cout << "Discrete angle: \t" << roll << endl;
+
 	double joint4_zero_point = _current_position(2) + _current_position(1) - M_PI;
 	_current_position(3) = roll + joint4_zero_point;
 	joint_state.position[3] = roll + joint4_zero_point;
@@ -201,15 +219,13 @@ void orimsgCallback(const geometry_msgs::Transform::ConstPtr&  msg)
 	}
 	std::cout<<std::endl;
 
-	memcpy(buff, position, sizeof(double) * 6);
-	_udp_angle_publsher->send(buff, sizeof(double) * 6);
-
-
-	joint_state.header.stamp = ros::Time::now();
-	simulator_joint_publisher->publish(joint_state);
-	Frame eeFrame;
-	_robot_fk_solver->JntToCart(_current_position, eeFrame);
-	eeFrame.M.GetRPY(roll, pitch, yaw);
+	// memcpy(buff, position, sizeof(double) * 6);
+	// _udp_angle_publsher->send(buff, sizeof(double) * 6);
+	// joint_state.header.stamp = ros::Time::now();
+	// simulator_joint_publisher->publish(joint_state);
+	// Frame eeFrame;
+	// _robot_fk_solver->JntToCart(_current_position, eeFrame);
+	// eeFrame.M.GetRPY(roll, pitch, yaw);
 	_yaw = roll;
 }
 
@@ -397,7 +413,7 @@ void *ik_fun(void *t) {
 		}
 		std::cout<<std::endl;
 
-		//TrimJoint(jointpositions);		
+		//TrimJoint(jointpositions);
 		end = clock();
 
 		if(kinematics_status >= 0){
