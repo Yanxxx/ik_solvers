@@ -194,13 +194,13 @@ void orimsgCallback(const geometry_msgs::Transform::ConstPtr&  msg)
 			<< " " << (roll < M_PI * 2 / 3 && roll >= 0) << endl;
 
 	if (roll > -M_PI * 2 / 3 && roll <= 0) {
-		roll = M_PI / 4;
+		roll = M_PI / 3;
 	}
 	else if ((roll < 0 && roll <= -M_PI * 2 / 3) || (roll > 0 && roll >= M_PI * 2 / 3)) {
 		roll = 0;
 	}
 	else if (roll < M_PI * 2 / 3 && roll >= 0){
-		roll = -M_PI / 4;
+		roll = -M_PI / 3;
 	} 
 
 	cout << "Discrete angle: \t" << roll << endl;
@@ -219,8 +219,8 @@ void orimsgCallback(const geometry_msgs::Transform::ConstPtr&  msg)
 	}
 	std::cout<<std::endl;
 
-	// memcpy(buff, position, sizeof(double) * 6);
-	// _udp_angle_publsher->send(buff, sizeof(double) * 6);
+	memcpy(buff, position, sizeof(double) * 6);
+	_udp_angle_publsher->send(buff, sizeof(double) * 6);
 	// joint_state.header.stamp = ros::Time::now();
 	// simulator_joint_publisher->publish(joint_state);
 	// Frame eeFrame;
@@ -262,6 +262,25 @@ int InBound(Vector& position){
 
 int INFO(string title, double data[]){
 	return 0;
+}
+
+int OUTPUT_INFO(Vector vec, Frame eeFrame){
+	cout << setprecision(3) << "delta position:\t\tx: " << _delta_pose.translation.x <<
+	"\t\ty: "<< _delta_pose.translation.y <<
+	"\t\tz: " << _delta_pose.translation.z <<endl;
+
+	cout << setprecision(3) << "current position:\tx: " << eeFrame.p[0] <<
+	"\t\ty: "<< eeFrame.p[1] <<
+	"\t\tz: " << eeFrame.p[2] <<endl;
+
+	cout << setprecision(3) << "target position:\tx: " << vec[0] <<
+	"\t\ty: "<< vec[1] <<
+	"\t\tz: " << vec[2] <<endl;
+
+	InBound(vec);
+	cout << setprecision(3) << "Inbound position:\tx: " << vec[0] <<
+	"\t\ty: "<< vec[1] <<
+	"\t\tz: " << vec[2] <<endl;
 }
 
 void *ik_fun(void *t) {
@@ -350,26 +369,12 @@ void *ik_fun(void *t) {
 
 		fksolver.JntToCart(_current_position, eeFrame);
 
+
 		vec[0] = _delta_pose.translation.x + eeFrame.p[0];
 		vec[1] = _delta_pose.translation.y + eeFrame.p[1];
 		vec[2] = _delta_pose.translation.z + eeFrame.p[2];
 		
-		cout << setprecision(3) << "delta position:\t\tx: " << _delta_pose.translation.x <<
-		"\t\ty: "<< _delta_pose.translation.y <<
-		"\t\tz: " << _delta_pose.translation.z <<endl;
-
-		cout << setprecision(3) << "current position:\tx: " << eeFrame.p[0] <<
-		"\t\ty: "<< eeFrame.p[1] <<
-		"\t\tz: " << eeFrame.p[2] <<endl;
-
-		cout << setprecision(3) << "target position:\tx: " << vec[0] <<
-		"\t\ty: "<< vec[1] <<
-		"\t\tz: " << vec[2] <<endl;
-
-		InBound(vec);
-		cout << setprecision(3) << "Inbound position:\tx: " << vec[0] <<
-		"\t\ty: "<< vec[1] <<
-		"\t\tz: " << vec[2] <<endl;
+		OUTPUT_INFO(vec, eeFrame);
 
 		rot = Rotation::Identity();
 		rot.DoRotX(M_PI);
