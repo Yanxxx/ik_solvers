@@ -146,6 +146,7 @@ add_executable(aubo_iksolver_3r src/aubo_iksolver_3r.cpp src/udp_client.cpp src/
 add_executable(aubo_rm_iksolver src/aubo_rm_iksolver.cpp src/udp_client.cpp src/udp_server.cpp)
 add_executable(aubo_iksolver_shadow_mode src/aubo_iksolver_shadow_mode.cpp src/udp_client.cpp src/udp_server.cpp)
 add_executable(kdl_chain_member_test src/kdl_chain_member_test.cpp src/udp_client.cpp src/udp_server.cpp)
+add_executable(aubo_direct_control src/aubo_direct_control.cpp src/udp_client.cpp src/udp_server.cpp)
 
 ## Specify libraries to link a library or executable target against
 
@@ -157,6 +158,7 @@ target_link_libraries(aubo_iksolver_3r kdl_parser orocos-kdl ${catkin_LIBRARIES}
 target_link_libraries(aubo_rm_iksolver kdl_parser orocos-kdl ${catkin_LIBRARIES})
 target_link_libraries(aubo_iksolver_shadow_mode kdl_parser orocos-kdl ${catkin_LIBRARIES})
 target_link_libraries(kdl_chain_member_test kdl_parser orocos-kdl ${catkin_LIBRARIES})
+target_link_libraries(aubo_direct_control kdl_parser orocos-kdl ${catkin_LIBRARIES})
 
 #kdl_chain_member_test
 
