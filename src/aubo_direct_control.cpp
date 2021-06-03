@@ -165,6 +165,10 @@ void posmsgCallback(const geometry_msgs::Transform::ConstPtr&  msg)
 	// std::cout<< "delta distance: "<< msg->translation.x<<" ";
 	// std::cout<< msg->translation.y<<" ";
 	// std::cout<< msg->translation.z<<std::endl;
+	cout<< "quaternion: x: " <<  _delta_pose.rotation.x
+		<< " y: " << _delta_pose.rotation.y
+		<< " z: " << _delta_pose.rotation.z
+		<< " w: " << _delta_pose.rotation.w << endl;
 }
 
 double Bound(double angle){
@@ -321,8 +325,8 @@ void *ik_fun(void *t) {
 		begin = clock();
 		// kinematics_status = iksolver.CartToJnt(_current_position, TargetFrame, jointpositions);
 
-		jointpositions(4) = M_PI_2;
-		jointpositions(5) = 0;
+		// jointpositions(4) = M_PI_2;
+		// jointpositions(5) = 0;
 		// fksolver.JntToCart(jointpositions, eeFrame);
 		// double r = 0, p = 0, y = 0;
 
@@ -334,6 +338,7 @@ void *ik_fun(void *t) {
 		// Frame ftf(rot, eeFrame.p);
 		rot_tmp = Rotation::Quaternion(_delta_pose.rotation.x,_delta_pose.rotation.y,
 									   _delta_pose.rotation.z,_delta_pose.rotation.w);
+
 		Frame TargetFrame(rot_tmp, vec);
 		kinematics_status = iksolver.CartToJnt(_current_position, TargetFrame, jointpositions);
 
