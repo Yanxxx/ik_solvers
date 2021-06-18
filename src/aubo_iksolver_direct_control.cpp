@@ -15,7 +15,7 @@
 #include <kdl/frames.hpp>
 #include "kdl_conversions/kdl_msg.h"
 #include "tf/transform_datatypes.h"
-//#include "tf_conversions/tf_kdl.h"
+// #include "tf_conversions/tf_kdl.h"
 
 #include <stdio.h> 
 #include <iostream> 
@@ -49,7 +49,7 @@ using namespace std;
 
 // define robot working space 
 #define X_LOWER_BOUND 0.1
-#define X_UPPER_BOUND 0.45
+#define X_UPPER_BOUND 0.6
 #define Y_LOWER_BOUND -0.6
 #define Y_UPPER_BOUND 0.4
 #define Z_LOWER_BOUND -0.1
@@ -71,6 +71,8 @@ geometry_msgs::Transform _delta_pose;
 sensor_msgs::JointState joint_state;
 ros::NodeHandle * _p_node;
 
+udp_client* _udp_angle_publsher;
+
 JntArray _current_position(NO_OF_JOINTS);
 JntArray current_velocity(NO_OF_JOINTS);
 JntArray robot_position(NO_OF_JOINTS);
@@ -78,6 +80,7 @@ JntArray robot_velocity(NO_OF_JOINTS);
 JntArray target_joint_pose(NO_OF_JOINTS);
 Rotation _rotation(1,0,0,0,1,0,0,0,1);
 Vector _position(0,0,0);
+double _yaw = 0;//0;
 
 const char* j_name_list[]={
 "shoulder_joint",
@@ -88,6 +91,11 @@ const char* j_name_list[]={
 "wrist3_joint",
 };
 
+const char* joint_position_name_list[]={
+"shoulder_joint",
+"upperArm_joint",
+"foreArm_joint",
+};
 
 void *udpserver(void * t) {
 	(void) t;
@@ -157,18 +165,18 @@ void posmsgCallback(const geometry_msgs::Transform::ConstPtr&  msg)
 	_delta_pose.translation.y = msg->translation.y;
 	_delta_pose.translation.z = msg->translation.z;
 
-	_delta_pose.rotation.x = msg->rotation.x;
-	_delta_pose.rotation.y = msg->rotation.y;
-	_delta_pose.rotation.z = msg->rotation.z;
-	_delta_pose.rotation.w = msg->rotation.w;
-
 	// std::cout<< "delta distance: "<< msg->translation.x<<" ";
 	// std::cout<< msg->translation.y<<" ";
 	// std::cout<< msg->translation.z<<std::endl;
-	cout<< "quaternion: x: " <<  _delta_pose.rotation.x
-		<< " y: " << _delta_pose.rotation.y
-		<< " z: " << _delta_pose.rotation.z
-		<< " w: " << _delta_pose.rotation.w << endl;
+}
+
+
+double Bound(double angle, double limit){
+	while(angle>limit||angle < -limit){
+		if(angle>M_PI) angle -=2*M_PI;
+		if(angle<-M_PI) angle +=2*M_PI;
+	}
+	return angle;
 }
 
 double Bound(double angle){
@@ -179,12 +187,81 @@ double Bound(double angle){
 	return angle;
 }
 
+void orimsgCallback(const geometry_msgs::Transform::ConstPtr&  msg)
+{
+	char buff[128] = {0};
+	_delta_pose.rotation.x = msg->rotation.x;
+	_delta_pose.rotation.y = msg->rotation.y;
+	_delta_pose.rotation.z = msg->rotation.z;
+	_delta_pose.rotation.w = msg->rotation.w;	
+
+	_rotation = Rotation::Quaternion(
+				_delta_pose.rotation.x,
+				_delta_pose.rotation.y,
+				_delta_pose.rotation.z,
+				_delta_pose.rotation.w);
+	double position[6] = {0};
+	double roll=0, pitch=0, yaw=0;
+	_rotation.GetRPY(roll, pitch, yaw);
+
+	cout << "Controller input angle: \t" << roll << endl;
+
+	cout << "conditions: "  << (roll > -M_PI * 2 / 3 && roll <= 0) 
+			<< " " << ((roll < 0 && roll <= -M_PI * 2 / 3) || (roll > 0 && roll >= M_PI * 2 / 3))
+			<< " " << (roll < M_PI * 2 / 3 && roll >= 0) << endl;
+
+	if (roll > -M_PI * 2 / 3 && roll <= 0) {
+		roll = M_PI / 3;
+	}
+	else if ((roll < 0 && roll <= -M_PI * 2 / 3) || (roll > 0 && roll >= M_PI * 2 / 3)) {
+		roll = 0;
+	}
+	else if (roll < M_PI * 2 / 3 && roll >= 0){
+		roll = -M_PI / 3;
+	} 
+
+
+	double joint4_zero_point = _current_position(2) + _current_position(1);
+	joint4_zero_point = Bound(joint4_zero_point, M_PI_2);
+	_current_position(3) = roll + joint4_zero_point;
+	cout << "Discrete angle: \t" << roll << "\tzero point: " << joint4_zero_point << endl;
+	joint_state.position[3] = roll + joint4_zero_point;
+	// jointpositions(3) = _current_position(3);
+	joint_state.header.stamp = ros::Time::now();
+	simulator_joint_publisher->publish(joint_state);
+
+	for(unsigned int i = 0; i < NO_OF_JOINTS ;i++){
+		position[i]  = _current_position(i) * 180 / M_PI;	
+	}
+
+	std::cout<< "Orientation Joint Positions:\t";
+	for(int i = 0; i< NO_OF_JOINTS;i++){
+		std::cout << setprecision(3) << "\tjoint "<< i + 1 <<": " << position[i];
+	}
+	std::cout<<std::endl;
+
+	memcpy(buff, position, sizeof(double) * 6);
+	_udp_angle_publsher->send(buff, sizeof(double) * 6);
+	// joint_state.header.stamp = ros::Time::now();
+	// simulator_joint_publisher->publish(joint_state);
+	// Frame eeFrame;
+	// _robot_fk_solver->JntToCart(_current_position, eeFrame);
+	// eeFrame.M.GetRPY(roll, pitch, yaw);
+	_yaw = roll;
+}
+
+
 void TrimJoint(JntArray& joints){
 	int i = 0;
 	for(i =0;i<NO_OF_JOINTS;i++){
 		joints(i) = Bound(joints(i));
 	}
 }
+
+double l1 = link_length[0];
+double l2 = link_length[1];
+double l3 = link_length[2];
+double l4 = link_length[3];
 
 int InBound(Vector& position){
 	if (position[0] <= X_LOWER_BOUND) position[0] = X_LOWER_BOUND;
@@ -246,11 +323,11 @@ void *ik_fun(void *t) {
 		link_length[i-1] = origin[link_index[i-1]];
 		cout<<link_length[i - 1]<<endl;
 	}
-	double l2 = link_length[1];
-	// l1 = link_length[0];
-	// l2 = link_length[1];
-	// l3 = link_length[2];
-	// l4 = link_length[3];
+
+	l1 = link_length[0];
+	l2 = link_length[1];
+	l3 = link_length[2];
+	l4 = link_length[3];
 
 	unsigned int nj = chain.getNrOfJoints();
 	unsigned int ns = chain.getNrOfSegments();
@@ -276,6 +353,7 @@ void *ik_fun(void *t) {
 	position[5] = 0;
 	char buff[1024] = "";
 	udp_client uc(UDP_CLIENT_IP, UDP_CLIENT_PORT);
+	_udp_angle_publsher = &uc;
 
 	double eps = 1e-5;
 	double eps_joints = 1e-15;
@@ -285,7 +363,6 @@ void *ik_fun(void *t) {
 	// construct the destination frame
 	Vector vec(0,0,0);
 	Rotation rot(0,0,0,0,0,0,0,0,0);
-	Rotation rot_tmp(0,0,0,0,0,0,0,0,0);
 	Rotation ee_yaw(1,0,0,0,1,0,0,0,1);
 
 	Rotation ee_base(1,0,0,0,1,0,0,0,1);
@@ -312,13 +389,12 @@ void *ik_fun(void *t) {
 		vec[2] = _delta_pose.translation.z + eeFrame.p[2];
 		
 		OUTPUT_INFO(vec, eeFrame);
-	    // InBound(vec);
 
 		rot = Rotation::Identity();
 		rot.DoRotX(M_PI);
 		rot.DoRotZ(-M_PI);
 		ee_yaw = Rotation::Identity();
-		// ee_yaw.DoRotX(_yaw);
+		ee_yaw.DoRotX(_yaw);
 
 		// TargetFrame.M.DoRotX(M_PI);
 		// TargetFrame.M.DoRotZ(-M_PI_2);
@@ -326,8 +402,8 @@ void *ik_fun(void *t) {
 		begin = clock();
 		// kinematics_status = iksolver.CartToJnt(_current_position, TargetFrame, jointpositions);
 
-		// jointpositions(4) = M_PI_2;
-		// jointpositions(5) = 0;
+		jointpositions(4) = M_PI_2;
+		jointpositions(5) = 0;
 		// fksolver.JntToCart(jointpositions, eeFrame);
 		// double r = 0, p = 0, y = 0;
 
@@ -337,15 +413,7 @@ void *ik_fun(void *t) {
 		rot = ee_yaw * rot;
 		rot = ee_base  * rot; 
 		// Frame ftf(rot, eeFrame.p);
-		rot_tmp = Rotation::Quaternion(_delta_pose.rotation.x,_delta_pose.rotation.y,
-									   _delta_pose.rotation.z,_delta_pose.rotation.w);
-		rot_tmp.DoRotX(M_PI);
-		// rot.DoRotZ(-M_PI);
-
-		// Rotation correct_rot(rot_tmp(0,0),0,rot_tmp(0,2),0,1,0,rot_tmp(2,0),0,rot_tmp(2,2));
-		Rotation correct_rot(1,0,0,0, rot_tmp(1,1),rot_tmp(1,2),0,rot_tmp(2,1),rot_tmp(2,2));
-		correct_rot = ee_base * correct_rot;
-		Frame TargetFrame(correct_rot, vec);
+		Frame TargetFrame(rot, vec);
 		kinematics_status = iksolver.CartToJnt(_current_position, TargetFrame, jointpositions);
 
 		std::cout<<"kinematic status:  "<< kinematics_status << endl;
@@ -402,6 +470,8 @@ int main(int argc,char** argv){
 	ros::NodeHandle node_handle;
 	ros::Subscriber tarpos_sub = 
 		node_handle.subscribe("tarpos_pub", 1000, posmsgCallback);
+	ros::Subscriber tarori_sub = 
+		node_handle.subscribe("tarori_pub", 1000, orimsgCallback);
 
 	// init robot start position
 	_current_position(0) = 0;
